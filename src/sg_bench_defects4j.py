@@ -55,6 +55,7 @@ def generate_defects4j_single_input(
       '// buggy lines start:\n' + result['buggy line'] +
       '// buggy lines end:\n' + result['buggy function after'] +
       '// fixed lines: \n',
+    'fixed_line': result['fixed line'],
   }
   print('✅', proj, bug_id, 'succeeded')
 

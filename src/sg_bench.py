@@ -146,12 +146,14 @@ def generate_input(
             '// buggy lines start:\n' + result['buggy line'] +
             '// buggy lines end:\n' + result['buggy function after'] +
             '// fixed lines: \n',
+          'fixed_line': result['fixed line'],
         }
       elif run_type == 'codegen':
         input_dict['data'][filename] = {
           'loc': rem_loc,
           'input': result['input'],
-          'function range': result['function range']
+          'function range': result['function range'],
+          'fixed_line': result['fixed line'],
         }
 
       sg_tools.command(['rm', '-rf', tmp_file])
@@ -502,25 +504,28 @@ def main():
   NOSYNC_DIR = os.path.abspath(os.path.join(C_DIR, '../nosync/'))
   # DEFAULT_PAD_TOKEN = "[PAD]"
 
-  # AutoTokenizer가 CodeLlamaTokenizer를 인식하지 못함
-  force_model = None
-  if ('code_llama' in args.model_name_or_path.lower()) or ('codellama' in args.model_name_or_path.lower()):
-    force_model = 'code_llama'
-  model, tokenizer = sg_model.get_model_tokenizer(args, force_model)
+  model, tokenizer = None, None
+  force_model, model_name = None, None
+  if generation_args.do_generate or generation_args.do_validate:
+    # AutoTokenizer가 CodeLlamaTokenizer를 인식하지 못함
+    force_model = None
+    if ('code_llama' in args.model_name_or_path.lower()) or ('codellama' in args.model_name_or_path.lower()):
+      force_model = 'code_llama'
+    model, tokenizer = sg_model.get_model_tokenizer(args, force_model)
 
-  # 생성 작업이 아니면 로드 이후 Model free
-  if not generation_args.do_generate:
-    model.cpu()
-    del model
-    torch.cuda.empty_cache()  # GPU 메모리 정리
-    import gc
-    gc.collect()  # 가비지 컬렉션 실행
-    model = None
-  else:
-    model.config.use_cache = False
-    model.eval()
+    # 생성 작업이 아니면 로드 이후 Model free
+    if not generation_args.do_generate:
+      model.cpu()
+      del model
+      torch.cuda.empty_cache()  # GPU 메모리 정리
+      import gc
+      gc.collect()  # 가비지 컬렉션 실행
+      model = None
+    else:
+      model.config.use_cache = False
+      model.eval()
 
-  model_name = sg_tools.nomalize_name_or_path_to_name(args.model_name_or_path) if args.model_name_or_path else 'UnknownModel'
+    model_name = sg_tools.nomalize_name_or_path_to_name(args.model_name_or_path) if args.model_name_or_path else 'UnknownModel'
 
   # Humaneval 테스트
   if generation_args.do_humaneval:
@@ -546,19 +551,19 @@ def main():
     output_file = os.path.join(os.path.abspath(args.output_dir), 'humaneval_finetune_output.json')
     validate_file = os.path.join(os.path.abspath(args.output_dir), 'humaneval_finetune_validate.json')
 
-    if generation_args.do_generate:
-      if not os.path.exists(input_file):
-        print(f"==========Preparing input of ({bench_type}) benchmark to ({run_type}) model==========")
-        generate_input(
-          run_type = run_type,
-          bench_type = bench_type,
-          bench_path = HUMANEVAL_DIR,
-          loc_file = HUMANEVAL_LOC_FILE,
-          java_project_path = JASPER_DIR,
-          output_file = input_file
-        )
-        print(f"==========Input written to {input_file}==========")
+    if not os.path.exists(input_file):
+      print(f"==========Preparing input of ({bench_type}) benchmark to ({run_type}) model==========")
+      generate_input(
+        run_type = run_type,
+        bench_type = bench_type,
+        bench_path = HUMANEVAL_DIR,
+        loc_file = HUMANEVAL_LOC_FILE,
+        java_project_path = JASPER_DIR,
+        output_file = input_file
+      )
+      print(f"==========Input written to {input_file}==========")
       
+    if generation_args.do_generate:
       print(f"==========Generating output of ({bench_type}) benchmark by ({run_type}) model==========")
       generate_output(
         model_name = model_name,
@@ -608,19 +613,19 @@ def main():
     output_file = os.path.join(os.path.abspath(args.output_dir), 'quixbugs_finetune_output.json')
     validate_file = os.path.join(os.path.abspath(args.output_dir), 'quixbugs_finetune_validate.json')
 
-    if generation_args.do_generate:
-      if not os.path.exists(input_file):
-        print(f"==========Preparing input of ({bench_type}) benchmark to ({run_type}) model==========")
-        generate_input(
-          run_type = run_type,
-          bench_type = bench_type,
-          bench_path = QUIXBUGS_DIR,
-          loc_file = QUIXBUGS_LOC_FILE,
-          java_project_path = JASPER_DIR,
-          output_file = input_file
-        )
-        print(f"==========Input written to {input_file}==========")
+    if not os.path.exists(input_file):
+      print(f"==========Preparing input of ({bench_type}) benchmark to ({run_type}) model==========")
+      generate_input(
+        run_type = run_type,
+        bench_type = bench_type,
+        bench_path = QUIXBUGS_DIR,
+        loc_file = QUIXBUGS_LOC_FILE,
+        java_project_path = JASPER_DIR,
+        output_file = input_file
+      )
+      print(f"==========Input written to {input_file}==========")
       
+    if generation_args.do_generate:
       print(f"==========Generating output of ({bench_type}) benchmark by ({run_type}) model==========")
       generate_output(
         model_name = model_name,
@@ -657,19 +662,20 @@ def main():
     DEFECTS4J_LOC_FILE = os.path.abspath(os.path.join(C_DIR, '../clm/clm-apr/defects4j/defects4j_loc.txt'))
 
     defects4j_command.command_with_timeout(['mkdir', '-p', DEFECTS4J_TMP_DIR])
+
+    if not os.path.exists(input_file):
+      print(f"==========Preparing input of ({bench_type}) benchmark to ({run_type}) model==========")
+      generate_input(
+        run_type = run_type,
+        bench_type = bench_type,
+        bench_path = DEFECTS4J_TMP_DIR,
+        loc_file = DEFECTS4J_LOC_FILE,
+        java_project_path = JASPER_DIR,
+        output_file = input_file
+      )
+      print(f"==========Input written to {input_file}==========")
+
     if generation_args.do_generate:
-      if not os.path.exists(input_file):
-        print(f"==========Preparing input of ({bench_type}) benchmark to ({run_type}) model==========")
-        generate_input(
-          run_type = run_type,
-          bench_type = bench_type,
-          bench_path = DEFECTS4J_TMP_DIR,
-          loc_file = DEFECTS4J_LOC_FILE,
-          java_project_path = JASPER_DIR,
-          output_file = input_file
-        )
-        print(f"==========Input written to {input_file}==========")
-      
       print(f"==========Generating output of ({bench_type}) benchmark by ({run_type}) model==========")
       generate_output(
         model_name = model_name,
