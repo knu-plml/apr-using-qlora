@@ -54,6 +54,7 @@ class TrainingArguments(transformers.Seq2SeqTrainingArguments):
   lora_r: int = field(default=64, metadata={"help": "Lora R dimension."})
   lora_alpha: float = field(default=16, metadata={"help": " Lora alpha."})
   lora_dropout: float = field(default=0.1, metadata={"help":"Lora dropout."})
+  peft_merge: bool = field(default=False, metadata={"help": "Merge LoRA weights into base model for faster inference (requires checkpoint)."})
 
   # Env
   cache_dir: Optional[str] = field(default=None)

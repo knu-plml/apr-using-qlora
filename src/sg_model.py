@@ -83,13 +83,24 @@ def __smart_tokenizer_and_embedding_resize(
 def get_model_tokenizer(
   args: argparse.Namespace,
   force_model: str, # 'code_llama'
-) -> tuple[(peft.PeftModel | peft.PeftMixedModel), transformers.PreTrainedTokenizer]:
+) -> tuple[(transformers.PreTrainedModel | peft.PeftModel | peft.PeftMixedModel), transformers.PreTrainedTokenizer]:
+  # peft_merge 모드 검증
+  peft_merge = getattr(args, 'peft_merge', False)
+  if peft_merge and args.do_train:
+    raise ValueError("peft_merge=True cannot be used with do_train=True. peft_merge is for inference only.")
+  if peft_merge and args.full_finetune:
+    raise ValueError("peft_merge=True cannot be used with full_finetune=True. peft_merge requires LoRA checkpoints.")
+
   # 마지막 세팅 불러오기
   checkpoint_dir, completed_training = sg_tools.get_last_checkpoint(args.output_dir)
   if completed_training:
     print('Detected that training was already completed!')
   if checkpoint_dir is not None:
     print(f'checkpoint founded: {checkpoint_dir}')
+
+  # peft_merge 모드에서는 checkpoint가 필수
+  if peft_merge and checkpoint_dir is None:
+    raise ValueError("peft_merge=True requires a checkpoint. No checkpoint found in output_dir.")
 
   # 멀티 GPU 환경 설정
   n_gpus = 1
@@ -129,6 +140,19 @@ def get_model_tokenizer(
       trust_remote_code=args.trust_remote_code,
       token=args.token
     )
+  elif peft_merge:
+    # peft_merge 모드: CPU에서 양자화 없이 원본 모델 로드 (대용량 모델 지원)
+    # GPU 메모리 부족으로 인한 meta tensor 오프로딩 문제를 방지하기 위해 CPU에서 병합 수행
+    print('🔀 peft_merge mode: Loading base model on CPU without quantization for LoRA merging...')
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+      args.model_name_or_path,
+      cache_dir=args.cache_dir,
+      device_map='cpu',
+      torch_dtype=compute_dtype,
+      trust_remote_code=args.trust_remote_code,
+      token=args.token,
+      low_cpu_mem_usage=True,
+    )
   else:
     model = transformers.AutoModelForCausalLM.from_pretrained(
       args.model_name_or_path,
@@ -136,9 +160,9 @@ def get_model_tokenizer(
       device_map=device_map,
       max_memory=max_memory,
       quantization_config=transformers.BitsAndBytesConfig(
-        load_in_4bit=args.bits == 4, # 4bit 양자화 시 
+        load_in_4bit=args.bits == 4, # 4bit 양자화 시
         load_in_8bit=args.bits == 8, # 8bit 양자화 시
-        llm_int8_threshold=6.0, 
+        llm_int8_threshold=6.0,
         llm_int8_has_fp16_weight=False,
         bnb_4bit_compute_dtype=compute_dtype, # 정규 분포에서 초기화된 가중치에 특별한 4비트 데이터 유형을 사용
         bnb_4bit_use_double_quant=args.double_quant, # 이미 양자화된 가중치를 양자화하기 위해 중첩된 양자화 방식을 사용
@@ -229,7 +253,54 @@ def get_model_tokenizer(
     )
 
   if not args.full_finetune:
-    if checkpoint_dir is not None:
+    if peft_merge:
+      # peft_merge 모드: CPU에서 LoRA 병합 후 양자화하여 GPU로 로드
+      print("🔗 Loading adapters from checkpoint for merging (on CPU)...")
+      model = peft.PeftModel.from_pretrained(
+        model,
+        os.path.abspath(os.path.join(checkpoint_dir, 'adapter_model')),
+        is_trainable=False,
+        device_map='cpu',
+      )
+      print("🔀 Merging LoRA weights into base model (on CPU)...")
+      model = model.merge_and_unload()
+      print("✅ LoRA weights merged successfully.")
+
+      # 병합된 모델 양자화하여 GPU로 로드
+      if args.bits in [4, 8]:
+        print(f"🗜️ Quantizing merged model to {args.bits}-bit and loading to GPU...")
+        quantization_config = transformers.BitsAndBytesConfig(
+          load_in_4bit=args.bits == 4,
+          load_in_8bit=args.bits == 8,
+          llm_int8_threshold=6.0,
+          llm_int8_has_fp16_weight=False,
+          bnb_4bit_compute_dtype=compute_dtype,
+          bnb_4bit_use_double_quant=args.double_quant,
+          bnb_4bit_quant_type=args.quant_type,
+        )
+        # 병합된 모델을 양자화하여 다시 로드
+        # 먼저 임시로 저장 후 양자화하여 GPU로 로드
+        import tempfile
+        import gc
+        with tempfile.TemporaryDirectory() as tmp_dir:
+          print(f"💾 Saving merged model to temporary directory...")
+          model.save_pretrained(tmp_dir)
+          tokenizer.save_pretrained(tmp_dir)
+          # CPU 메모리 해제
+          del model
+          gc.collect()
+          torch.cuda.empty_cache()
+          print(f"🔄 Reloading merged model with {args.bits}-bit quantization to GPU...")
+          model = transformers.AutoModelForCausalLM.from_pretrained(
+            tmp_dir,
+            device_map=device_map,
+            max_memory=max_memory,
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
+            trust_remote_code=args.trust_remote_code,
+          )
+        print(f"✅ Merged model quantized to {args.bits}-bit and loaded to GPU successfully.")
+    elif checkpoint_dir is not None:
       print("🔗 Loading adapters from checkpoint...")
       model = peft.PeftModel.from_pretrained(
         model,

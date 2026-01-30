@@ -90,7 +90,7 @@ def finetune(
     num_workers=0, pin_memory=True, sampler=validation_sampler, collate_fn=sg_dataset.custom_collate
   )
 
-  optimizer: torch.optim.Adam | bitsandbytes.adam.PagedAdam32bit = None
+  optimizer: torch.optim.Adam | bitsandbytes.adam.PagedAdam32bit | None = None
   if (args.optim == 'paged_adamw_32bit'):
     optimizer = bitsandbytes.adam.PagedAdam32bit(
       model.parameters(),
