@@ -21,3 +21,5 @@ sudo apt install nvidia-cuda-toolkit
 nvcc --version
 
 ln -s /usr/lib/wsl/lib/libcuda.so /home/stgr/miniconda3/envs/p14_3/lib/libcuda.so
+
+export LD_LIBRARY_PATH=/home/yglee/miniconda3/envs/p14_5/lib:$LD_LIBRARY_PATH
