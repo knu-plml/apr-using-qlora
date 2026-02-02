@@ -25,20 +25,32 @@ def generate_defects4j_single_input(
 
   start, end = rem_loc.split('-')
   end = str(int(end) - 1) if end != start else end
+  add_start, add_end = add_loc.split('-')
+  add_end = str(int(add_end) - 1) if add_end != add_start else add_end
   tmp_file = os.path.join(bench_tmp_path, 'tmp.json')
   pkey = proj + '_' + bug_id + '_' + path + '_' + rem_loc
 
-  # Defects4J 프로젝트를 체크아웃
-  subprocess.run(['defects4j', 'checkout', '-p', proj, '-v', bug_id + 'b', '-w', bench_tmp_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  # Defects4J 프로젝트를 체크아웃 (buggy 버전)
+  buggy_tmp_path = bench_tmp_path + '_buggy'
+  fixed_tmp_path = bench_tmp_path + '_fixed'
+  defects4j_command.command_with_timeout(['mkdir', '-p', buggy_tmp_path])
+  defects4j_command.command_with_timeout(['mkdir', '-p', fixed_tmp_path])
+  subprocess.run(['defects4j', 'checkout', '-p', proj, '-v', bug_id + 'b', '-w', buggy_tmp_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  # Defects4J 프로젝트를 체크아웃 (fixed 버전)
+  subprocess.run(['defects4j', 'checkout', '-p', proj, '-v', bug_id + 'f', '-w', fixed_tmp_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
   # Jasper Java 프로젝트를 통해 입력 생성
   sg_tools.run_java_to_generate_input(
     run_type = 'finetune',
     java_project_path = java_project_path,
-    buggy_file = os.path.join(bench_tmp_path, path),
+    buggy_file = os.path.join(buggy_tmp_path, path),
     rem_start = start,
     rem_end = end,
     tmp_file = tmp_file,
-    config = None
+    config = None,
+    fixed_file = os.path.join(fixed_tmp_path, path),
+    add_start = add_start,
+    add_end = add_end
   )
 
   if not os.path.exists(tmp_file):
@@ -60,7 +72,8 @@ def generate_defects4j_single_input(
   print('✅', proj, bug_id, 'succeeded')
 
   sg_tools.command(['rm', '-rf', tmp_file])
-  sg_tools.command(['rm', '-rf', bench_tmp_path])
+  sg_tools.command(['rm', '-rf', buggy_tmp_path])
+  sg_tools.command(['rm', '-rf', fixed_tmp_path])
   return return_obj
 
 

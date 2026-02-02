@@ -223,10 +223,15 @@ def run_java_to_generate_input(
   rem_start: int,
   rem_end: int,
   tmp_file: str,
-  config: dict|None = None
+  config: dict|None = None,
+  fixed_file: str|None = None,
+  add_start: int|None = None,
+  add_end: int|None = None
 ):
   """
     Java 프로젝트를 실행해 모델평가에 사용할 입력을 생성해 tmp_file로 저장
+
+    fixed_file, add_start, add_end가 제공되면 finetuning 모드로 실행하여 fixed line도 생성
   """
   os.chdir(java_project_path)
 
@@ -235,14 +240,23 @@ def run_java_to_generate_input(
   ]
   if run_type == 'finetune':
     commandArgs.append('clm.finetuning.FineTuningData')
-    commandArgs.append('inference')
+    # fixed 파일 정보가 있으면 finetuning 모드, 없으면 inference 모드
+    if fixed_file and add_start is not None and add_end is not None:
+      commandArgs.append('finetuning')
+    else:
+      commandArgs.append('inference')
   elif run_type == 'codegen':
     commandArgs.append('clm.codegen.CodeGenInputParser')
   else:
     raise ValueError('unrecognized run_type')
-  
+
   if run_type == 'finetune':
-    commandArgs += [buggy_file, str(rem_start), str(rem_end), tmp_file]
+    if fixed_file and add_start is not None and add_end is not None:
+      # finetuning 모드: 8개 인자
+      commandArgs += [buggy_file, str(rem_start), str(rem_end), fixed_file, str(add_start), str(add_end), tmp_file]
+    else:
+      # inference 모드: 5개 인자
+      commandArgs += [buggy_file, str(rem_start), str(rem_end), tmp_file]
   elif run_type == 'codegen':
     commandArgs += [buggy_file, str(rem_start), str(rem_end), config, tmp_file]
 

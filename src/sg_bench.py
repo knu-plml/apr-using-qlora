@@ -2,6 +2,7 @@ import codecs
 import json
 import os
 import random
+import sys
 
 import numpy
 import shutil
@@ -85,30 +86,44 @@ def generate_input(
       # humaneval or quixbugs
       filename = None
       rem_loc = None
-      _add_loc = None
+      add_loc = None
       if bench_type == 'humaneval':
         filename, rem_loc = line.strip().split()
+        add_loc = rem_loc  # HumanEval은 buggy와 correct의 라인 수가 동일
       elif bench_type == 'quixbugs':
-        filename, rem_loc, _add_loc = line.strip().split()
+        filename, rem_loc, add_loc = line.strip().split()
       else:
         raise ValueError(f'❌ unrecognized bench_type {bench_type}')
 
       start, end = rem_loc.split('-')
       end = str(int(end) - 1) if end != start else end
+      add_start, add_end = add_loc.split('-')
+      add_end = str(int(add_end) - 1) if add_end != add_start else add_end
       tmp_file = os.path.join(bench_path, 'tmp.json')
 
       # 각 벤치마크 별 파일 경로 설정
       buggy_file = None
+      fixed_file = None
       if bench_type == 'humaneval':
         buggy_file = os.path.join(
           bench_path,
           'src_bak/main/java/humaneval/buggy',
           f'{filename}.java',
         )
+        fixed_file = os.path.join(
+          bench_path,
+          'src_bak/main/java/humaneval/correct',
+          f'{filename}.java',
+        )
       elif bench_type == 'quixbugs':
         buggy_file = os.path.join(
           bench_path,
           'java_programs_bak',
+          f'{filename}.java'
+        )
+        fixed_file = os.path.join(
+          bench_path,
+          'correct_java_programs',
           f'{filename}.java'
         )
       else:
@@ -122,7 +137,10 @@ def generate_input(
         rem_start = start,
         rem_end = end,
         tmp_file = tmp_file,
-        config = config
+        config = config,
+        fixed_file = fixed_file,
+        add_start = add_start,
+        add_end = add_end
       )
       
       if not os.path.exists(tmp_file):
